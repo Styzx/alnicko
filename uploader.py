@@ -38,11 +38,10 @@ class Uploader(object):
         self._pool.close()
         self._pool.join()
         self._pbar.close()
-        print(self._result_list)
         pids = []
-        total_time = 0
         for res in self._result_list:
             pids.append(res['pid'])
+            print(res)
         print('Process ids: ', set(pids))
 
     def log_result(self, result):
@@ -118,13 +117,11 @@ class Progress(object):
 
 
 def main():
-    # get filenames from folder files
     dirpath = os.path.dirname(os.path.abspath(__file__))
-    files_fullnames = []
+    files_list = []
     for dirname, dirnames, filenames in os.walk(dirpath + '/files'):
-        files_fullnames = [os.path.join(dirname, filename) for filename in filenames]
+        files_list = [os.path.join(dirname, filename) for filename in filenames]
 
-    files_list = files_fullnames
     m = Manager()
     q = m.Queue()
     uploader = Uploader(files_list, MAX_PROCESSES, q)
