@@ -56,6 +56,7 @@ class Uploader(object):
         #     self._pool.terminate()
         #     print('Terminated at item № %s' % TERMINATING_NUMBER)
 
+
 def poster(url, file, queue):
     post_file = {'file': open(file, 'rb')}
     r2 = requests.post(url, files=post_file)
@@ -69,7 +70,8 @@ def poster(url, file, queue):
     progress.total = r2.elapsed.total_seconds()
     progress.pid = curp
     queue.put(progress)
-    return(progress)
+    return progress
+
 
 class Progress(object):
 
@@ -85,8 +87,8 @@ class Progress(object):
         return self._error
 
     @error.setter
-    def error(self, input):
-        self._error = input
+    def error(self, value):
+        self._error = value
 
     # getter
     @property
@@ -94,8 +96,8 @@ class Progress(object):
         return self._done
 
     @done.setter
-    def done(self, input):
-        self._done = input
+    def done(self, value):
+        self._done = value
 
     # getter
     @property
@@ -103,8 +105,8 @@ class Progress(object):
         return self._total
 
     @total.setter
-    def total(self, input):
-        self._total = input
+    def total(self, value):
+        self._total = value
 
     # getter
     @property
@@ -112,8 +114,8 @@ class Progress(object):
         return self._pid
 
     @pid.setter
-    def pid(self, input):
-        self._pid = input
+    def pid(self, value):
+        self._pid = value
 
 
 def main():
