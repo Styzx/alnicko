@@ -1,14 +1,14 @@
 import os
 import sys
-from multiprocessing import Pool, Process, current_process
-from queue import Queue
+from multiprocessing import Pool, current_process, Manager
 
 import requests
 from tqdm import tqdm
 
 # test url
 URL = 'https://httpbin.org/post'
-MAX_PROCESSES = 4
+MAX_PROCESSES = 12
+TERMINATING_NUMBER = 10
 
 class Uploader(object):
 
@@ -19,95 +19,58 @@ class Uploader(object):
         self._url = URL
         self._processes = None
         self._result_list = []
+        self._pool = None
+        self._pbar = None
 
     def start(self):
         processes = []
-        pr = Progress()
-        # pr.error = self.pid
-        pr.done = current_process().name
-        pr.error = current_process().pid
-
         # Pool variant
         self._processes = processes
         pool = Pool(processes=self._max_processes)
         total_bytes = 0
-        for file in self._files_list:
+        self._pbar = tqdm(total=len(self._files_list))
+        for i, file in enumerate(self._files_list):
             total_bytes += os.stat(file).st_size
-            pool.apply_async(poster, args=(self._url, file), callback = self.log_result)
-        pool.close()
-        pool.join()
-
-        print(self._result_list)
-
-    def build_worker_pool(self, queue, size):
-        workers = []
-        for _ in range(size):
-            worker = Processor(queue)
-            worker.start()
-            workers.append(worker)
-        return workers
-
-    def quit(self):
-        self._queue.put('quit')
+            pool.apply_async(poster, args=(self._url, file, self._queue), callback=self.log_result)
+        self._pool = pool
 
     def is_active(self):
-        # workers = self.build_worker_pool(self._queue, self._max_processes)
-        # self._processes = workers
-        # for worker in workers:
-        #     worker.join()
-        for proc in self._processes:
-            proc.join()
-            proc.is_alive()
-
-    def show_prog(self, q, total_bytes):
-        prog = tqdm(total=total_bytes, desc="Total", unit='B', unit_scale=True)
-        while 1:
-            try:
-                to_add = q.get(timeout=1)
-                prog.n += to_add
-                prog.update(0)
-                if prog.n >= total_bytes:
-                    break
-            except:
-                continue
-
+        self._pool.close()
+        self._pool.join()
+        self._pbar.close()
+        print(self._result_list)
+        pids = []
+        total_time = 0
+        for res in self._result_list:
+            pids.append(res['pid'])
+        print('Process ids: ', set(pids))
 
     def log_result(self, result):
-        # This is called whenever foo_pool(i) returns a result.
-        # result_list is modified only by the main process, not the pool workers.
-        self._result_list.append(result)
+        progress = self._queue.get()
 
+        self._result_list.append({'file': progress.done, 'status_code': progress.error, 'time_elapsed': progress.total, 'pid': progress.pid})
+        # print(progress.done, progress.error, progress.total)
+        self._pbar.update(1)
 
-def poster(url, file):
+        # Upload interruption example
+        # if self._pbar.n == TERMINATING_NUMBER:
+        #     self._pool.terminate()
+        #     print('Terminated at item № %s' % TERMINATING_NUMBER)
+
+def poster(url, file, queue):
     post_file = {'file': open(file, 'rb')}
-
     r2 = requests.post(url, files=post_file)
-    print('Process id: ', current_process().pid)
-    # queue.put(current_process().pid)
-    print('File posted: ', post_file)
+    curp = current_process().pid
+    print('Process id: ', curp)
+    print('File posted: ', file)
     print('Time elapsed: ', r2.elapsed.total_seconds())
-    return {'file': file, 'status_code': r2.status_code, 'time_elapsed': r2.elapsed.total_seconds()}
-
-class Processor(Process):
-
-    def __init__(self, queue):
-        super(Processor, self).__init__()
-        self.file = queue.get()
-        self.queue = queue
-        self.url = URL
-
-    def run(self):
-
-        post_file = {'file': open(self.file, 'rb')}
-        print('File to post: ', post_file)
-        r2 = requests.post(self.url, files=post_file)
-        print('Process id: ', current_process().pid)
-        # queue.put(current_process().pid)
-        print('Time elapsed: ', r2.elapsed.total_seconds())
-        self.queue.put("Process idx={0} is called '{1}'".format(current_process().pid, self.name))
-        # print("Process  idx={0} is called '{1}'".format(current_process().pid, self.name))
-        # return {'file': self.file, 'status_code': r2.status_code, 'time_elapsed': r2.elapsed.total_seconds()}
-
+    progress = Progress()
+    progress.done = file
+    progress.error = r2.status_code
+    progress.total = r2.elapsed.total_seconds()
+    progress.pid = curp
+    queue.put(progress)
+    return(progress)
 
 class Progress(object):
 
@@ -115,6 +78,7 @@ class Progress(object):
         self._done = None
         self._error = None
         self._total = None
+        self._pid = None
 
     # getter
     @property
@@ -122,8 +86,8 @@ class Progress(object):
         return self._error
 
     @error.setter
-    def error(self, pid):
-        self._error = pid
+    def error(self, input):
+        self._error = input
 
     # getter
     @property
@@ -131,8 +95,8 @@ class Progress(object):
         return self._done
 
     @done.setter
-    def done(self, pid):
-        self._done = pid
+    def done(self, input):
+        self._done = input
 
     # getter
     @property
@@ -140,8 +104,17 @@ class Progress(object):
         return self._total
 
     @total.setter
-    def total(self, pid):
-        self._total = pid
+    def total(self, input):
+        self._total = input
+
+    # getter
+    @property
+    def pid(self):
+        return self._pid
+
+    @pid.setter
+    def pid(self, input):
+        self._pid = input
 
 
 def main():
@@ -152,13 +125,11 @@ def main():
         files_fullnames = [os.path.join(dirname, filename) for filename in filenames]
 
     files_list = files_fullnames
-    q = Queue()
+    m = Manager()
+    q = m.Queue()
     uploader = Uploader(files_list, MAX_PROCESSES, q)
     uploader.start()
-
-    while uploader.is_active():
-        progress = q.get()
-        print(progress.done, progress.error, progress.total)
+    uploader.is_active()
 
 
 if __name__ == '__main__':
