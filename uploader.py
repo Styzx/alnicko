@@ -1,6 +1,7 @@
 import os
 import sys
 from multiprocessing import Pool, current_process, Manager
+from typing import List
 
 import requests
 from tqdm import tqdm
@@ -8,11 +9,12 @@ from tqdm import tqdm
 # test url
 URL = 'https://httpbin.org/post'
 MAX_PROCESSES = 12
-TERMINATING_NUMBER = 10
+TERMINATING_NUMBER = 7
+
 
 class Uploader(object):
 
-    def __init__(self, files_list, max_processes, queue):
+    def __init__(self, files_list: List[str], max_processes: int, queue):
         self._files_list = files_list
         self._max_processes = max_processes
         self._queue = queue
@@ -21,6 +23,7 @@ class Uploader(object):
         self._result_list = []
         self._pool = None
         self._pbar = None
+        self._terminating_number = TERMINATING_NUMBER
 
     def start(self):
         processes = []
@@ -39,6 +42,7 @@ class Uploader(object):
         self._pool.join()
         self._pbar.close()
         pids = []
+        print('Uploaded files %s/%s: ' % (len(self._result_list), len(self._files_list)))
         for res in self._result_list:
             pids.append(res['pid'])
             print(res)
@@ -50,14 +54,21 @@ class Uploader(object):
         self._result_list.append({'file': progress.done, 'status_code': progress.error, 'time_elapsed': progress.total, 'pid': progress.pid})
         # print(progress.done, progress.error, progress.total)
         self._pbar.update(1)
+        self.interrupt(TERMINATING_NUMBER)
 
-        # Upload interruption example
-        # if self._pbar.n == TERMINATING_NUMBER:
-        #     self._pool.terminate()
-        #     print('Terminated at item № %s' % TERMINATING_NUMBER)
+    def interrupt(self, terminating_number: int):
+        # Upload interruption
+        if self._pbar.n == terminating_number:
+            self._pool.terminate()
+            print('Terminated at item № %s' % terminating_number)
+            upfiles_list = [res['file'] for res in self._result_list]
+            left_files_list = [res for res in self._files_list if res not in upfiles_list]
+            print('Files not uploaded - %s/%s: ' % (len(left_files_list), len(self._files_list)))
+            for lfl in left_files_list:
+                print(lfl)
 
 
-def poster(url, file, queue):
+def poster(url: str, file: str, queue):
     post_file = {'file': open(file, 'rb')}
     r2 = requests.post(url, files=post_file)
     curp = current_process().pid
